@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"html/template"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/russross/blackfriday"
@@ -134,12 +134,13 @@ func makePageHandlerFunc() func(w http.ResponseWriter, r *http.Request) {
 }
 
 func makeCommentHandlerFunc() http.HandlerFunc {
+	var mutex = &sync.Mutex{}
 	return func(w http.ResponseWriter, r *http.Request) {
 		title := r.URL.Path[len("/comment/"):]
-		log.Printf("url: %v, title: %v", r.URL.Path, title)
 		name := r.FormValue("name")
 		comment := r.FormValue("comment")
 		c := Comment{Name: name, Comment: comment}
+		mutex.Lock()
 		cs, err := loadComments(title)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -149,6 +150,7 @@ func makeCommentHandlerFunc() http.HandlerFunc {
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
+		mutex.Unlock()
 		http.Redirect(w, r, "/page/"+title, http.StatusFound)
 	}
 }
