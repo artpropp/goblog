@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"html/template"
-	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -84,6 +83,7 @@ func main() {
 	http.HandleFunc("/comment/", makeCommentHandlerFunc())
 	http.Handle("/files/", http.StripPrefix("/files/", http.FileServer(http.Dir(*flagFilesFolder))))
 	http.HandleFunc("/", makeIndexHandlerFunc())
+	fmt.Println("starting server on port", *flagPort)
 	err := http.ListenAndServe(":"+*flagPort, nil)
 	if err != nil {
 		fmt.Println("ListenAndServe:", err)
@@ -91,19 +91,34 @@ func main() {
 }
 
 func makeIndexHandlerFunc() func(w http.ResponseWriter, r *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) {
-		ps, err := loadPages(*flagSrcFolder)
-		if err != nil {
-			fmt.Println(err)
+	tmpl, err := parseFiles("index.tmpl.html")
+	if err != nil {
+		panic("makeIndexHandlerFunc: could not parse page.tmpl.html")
+	}
+	var ps Pages
+	go func() {
+		for {
+			ps, err = loadPages(*flagSrcFolder)
+			if err != nil {
+				fmt.Println(err)
+			}
+			fmt.Println("index loaded/")
+			time.Sleep(30 * time.Second)
 		}
-		err = renderPage(w, ps, "index.tmpl.html")
+	}()
+	return func(w http.ResponseWriter, r *http.Request) {
+		err = tmpl.ExecuteTemplate(w, "base", ps)
 		if err != nil {
-			fmt.Println(err)
+			fmt.Println("MakePageHandlerFunc: tmpl.ExecuteTemplate: %w", err)
 		}
 	}
 }
 
 func makePageHandlerFunc() func(w http.ResponseWriter, r *http.Request) {
+	tmpl, err := parseFiles("page.tmpl.html")
+	if err != nil {
+		panic("makePageHandlerFunc: could not parse page.tmpl.html")
+	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		f := r.URL.Path[len("/page/"):]
 		fpath := filepath.Join(*flagSrcFolder, f)
@@ -111,9 +126,9 @@ func makePageHandlerFunc() func(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			fmt.Println(err)
 		}
-		err = renderPage(w, p, "page.tmpl.html")
+		err = tmpl.ExecuteTemplate(w, "base", p)
 		if err != nil {
-			fmt.Println()
+			fmt.Println("MakePageHandlerFunc: tmpl.ExecuteTemplate: %w", err)
 		}
 	}
 }
@@ -155,22 +170,14 @@ func makeHandleAPIHandlerFunc() http.HandlerFunc {
 	}
 }
 
-func renderPage(w io.Writer, data interface{}, content string) error {
-	tmpl, err := template.ParseFiles(
+func parseFiles(content string) (*template.Template, error) {
+	return template.ParseFiles(
 		filepath.Join(*flagTmplFolder, "base.tmpl.html"),
 		filepath.Join(*flagTmplFolder, "header.tmpl.html"),
 		filepath.Join(*flagTmplFolder, "footer.tmpl.html"),
 		filepath.Join(*flagTmplFolder, "comment.tmpl.html"),
 		filepath.Join(*flagTmplFolder, content),
 	)
-	if err != nil {
-		return fmt.Errorf("renderPage.ParseFiles: %w", err)
-	}
-	err = tmpl.ExecuteTemplate(w, "base", data)
-	if err != nil {
-		return fmt.Errorf("renderPage.ExecuteTemplate: %w", err)
-	}
-	return nil
 }
 
 func saveComments(title string, cs []Comment) error {
