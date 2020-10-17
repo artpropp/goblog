@@ -32,8 +32,10 @@ type Comment struct {
 }
 
 var (
-	flagSrcFolder  = flag.String("src", "./pages/", "blog folder")
-	flagTmplFolder = flag.String("tmpl", "./templates/", "template folder")
+	flagSrcFolder   = flag.String("src", "./pages/", "blog folder")
+	flagTmplFolder  = flag.String("tmpl", "./templates/", "template folder")
+	flagFilesFolder = flag.String("files", "./files/", "path for the file server")
+	flagPort        = flag.String("port", "8001", "port of the webserver")
 )
 
 func loadPage(fpath string) (Page, error) {
@@ -78,9 +80,11 @@ func loadPages(src string) (Pages, error) {
 
 func main() {
 	http.HandleFunc("/page/", makePageHandlerFunc())
+	http.HandleFunc("/api/", makeHandleAPIHandlerFunc())
 	http.HandleFunc("/comment/", makeCommentHandlerFunc())
+	http.Handle("/files/", http.StripPrefix("/files/", http.FileServer(http.Dir(*flagFilesFolder))))
 	http.HandleFunc("/", makeIndexHandlerFunc())
-	err := http.ListenAndServe(":8001", nil)
+	err := http.ListenAndServe(":"+*flagPort, nil)
 	if err != nil {
 		fmt.Println("ListenAndServe:", err)
 	}
@@ -131,6 +135,23 @@ func makeCommentHandlerFunc() http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 		http.Redirect(w, r, "/page/"+title, http.StatusFound)
+	}
+}
+
+func makeHandleAPIHandlerFunc() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ps, err := loadPages(*flagSrcFolder)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		enc := json.NewEncoder(w)
+		enc.SetEscapeHTML(false)
+		enc.SetIndent("", "  ")
+		err = enc.Encode(ps)
+		if err != nil {
+			fmt.Println("cannot encode page to json")
+		}
 	}
 }
 
